@@ -1,4 +1,4 @@
-import pygame,sys,math,random,textwrap,pickle
+import pygame,sys,math,random,textwrap,pickle, heapq
 from pygame.locals import *
 
 #colors
@@ -743,6 +743,58 @@ def get_all_equipped(obj):  #returns a list of equipped items
     else:
         return []  #other objects have no equipment
 
+# Example of a simple A* pathfinding algorithm
+def heuristic(a, b):
+    # Manhattan distance heuristic
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+def astar_pathfinding(game_map, start, end):
+    open_list = []
+    closed_list = set()
+    heapq.heappush(open_list, (0, start))
+    parents = {start: None}
+    g_values = {start: 0}
+
+    while open_list:
+        current_cost, (current_x, current_y) = heapq.heappop(open_list)
+
+        if (current_x, current_y) == end:
+            path = []
+            while (current_x, current_y) in parents:
+                path.append((current_x, current_y))
+                current_x, current_y = parents[(current_x, current_y)]
+            return path[::-1]
+
+        if (current_x, current_y) in closed_list:
+            continue
+        closed_list.add((current_x, current_y))
+
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:  # Assuming 4-connected grid
+            neighbor_x, neighbor_y = current_x + dx, current_y + dy
+            if (neighbor_x, neighbor_y) in closed_list or is_blocked(neighbor_x, neighbor_y):
+                continue
+            tentative_g = g_values[(current_x, current_y)] + 1
+            if (neighbor_x, neighbor_y) not in g_values or tentative_g < g_values[(neighbor_x, neighbor_y)]:
+                g_values[(neighbor_x, neighbor_y)] = tentative_g
+                f_score = tentative_g + distance_to_end(neighbor_x, neighbor_y, end)
+                heapq.heappush(open_list, (f_score, (neighbor_x, neighbor_y)))
+                parents[(neighbor_x, neighbor_y)] = (current_x, current_y)
+
+    return []  # If no path found
+
+def distance_to_end(x, y, end):
+    end_x, end_y = end
+    return abs(end_x - x) + abs(end_y - y)
+
+def get_neighbors(grid, pos):
+    # Function to get neighboring cells (assumes 4 directions: up, down, left, right)
+    neighbors = []
+    for direction in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        neighbor = (pos[0] + direction[0], pos[1] + direction[1])
+        if 0 <= neighbor[0] < len(grid) and 0 <= neighbor[1] < len(grid[0]) and grid[neighbor[0]][neighbor[1]] != '#':
+            neighbors.append(neighbor)
+    return neighbors
+
 
 def save_game():
     #open a new empty shelve (possibly overwriting an old one) to write the game data
@@ -1053,6 +1105,19 @@ class Object:
         dx = int(round(dx / distance)) * TILE_WIDTH
         dy = int(round(dy / distance)) * TILE_HEIGHT
         self.move(dx, dy)
+
+    def move_towards_player(self, player_position, game_map):
+        start = (self.x, self.y)
+        end = player_position
+
+        # Perform A* pathfinding to get the path from object to player
+        path = astar_pathfinding(game_map, start, end)
+
+        # Move object towards the player (simplified example, adjust based on your game logic)
+        if path:
+            next_position = path[0]
+            self.x = next_position[0]
+            self.y = next_position[1]
  
     def distance_to(self, other):
         #return the distance to another object
