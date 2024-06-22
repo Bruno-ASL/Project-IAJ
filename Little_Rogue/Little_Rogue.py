@@ -470,6 +470,8 @@ def target_tile(max_range=None):
         #render the screen          
         render_all()
 
+#Display names of objects under the mouse cursor. (It displays the name of objects in the top left corner, not under the mouse cursor)
+
         
 def target_monster(max_range=None):
     #returns a clicked monster inside FOV up to a range, or None if right-clicked
@@ -865,40 +867,40 @@ def save_game():
     game_data['player_action'] = player_action
     game_data['message_log'] = message_log
     game_data['dungeon_level'] = dungeon_level
-    with open('LIttle_Rogue.dat', 'wb') as file:
+    with open('savegame.dat', 'wb') as file:
          file_saver=pickle.Pickler(file)
          file_saver.dump(game_data)
 
-    
+
 def load_game():
     #open the previously saved shelve and load the game data
     global level_map, objects, player, stairs, camera, inventory, dungeon_level
     global game_msgs, game_msgs_data, game_state, player_action, message_log
-    
-    with open('LIttle_Rogue.dat', 'rb') as file:
+
+    with open('savegame.dat', 'rb') as file:
          file_loader=pickle.Unpickler(file)
          game_data=file_loader.load()
-    
+
     level_map = game_data['map']
     objects = game_data['objects']
     player = game_data['player']
     stairs = game_data['stairs']
     inventory = game_data['inventory']
-    game_msgs_data = game_data['game_msgs_data']     
+    game_msgs_data = game_data['game_msgs_data']
     game_state = game_data['game_state']
     player_action = game_data['player_action']
     message_log = game_data['message_log']
     dungeon_level = game_data['dungeon_level']
-    
+
     camera = Camera(player)
     update_gui()
     for obj in objects:
         obj.image = images[obj.image_index]
-    game_msgs = []       
+    game_msgs = []
     for line,color in game_msgs_data:
         msg = font.render(line, True, color)
         game_msgs.append(msg)
-        
+
        
 def new_game():
     global player, camera, game_state, player_action, active_entities
@@ -941,7 +943,7 @@ def msgbox(text):
 
 
 def play_game():
-    global player_action, message_log, dirty_rectangles
+    global player_action, message_log, dirty_rectangles, game_state
 
     clock = pygame.time.Clock()
     player_move = False
@@ -960,8 +962,8 @@ def play_game():
             if game_state == 'playing':
                 if event.type == KEYDOWN:
                     if event.key == K_ESCAPE:
-                        save_game()
-                        return
+                        game_state = 'main_menu'
+                        break
                     message_log = False
                     old_position = (player.x, player.y)
                     # movement keys
@@ -1005,7 +1007,7 @@ def play_game():
                               'Experience to level up: ' + str(level_up_exp),
                               'Maximum HP: ' + str(player.fighter.max_hp),
                               'Attack: ' + str(player.fighter.power), 'Defense: ' + str(player.fighter.defense)])
-                    # go down stairs
+                    # go downstairs
                     if event.key in (K_LESS, K_PERIOD) or event.unicode == '>':
                         if stairs.x == player.x and stairs.y == player.y:
                             next_level()
@@ -1039,6 +1041,9 @@ def play_game():
                     entity.ai.take_turn()
             player_action = 'didnt-take-turn'
 
+        if game_state == 'main_menu':
+            main_menu()
+
         render_all()
         pygame.display.update(dirty_rectangles)
         dirty_rectangles = []
@@ -1064,6 +1069,10 @@ def update_dirty_rectangles(rect):
     dirty_rectangles.append(rect)
 
 def main_menu():
+
+    #Games can be saved and loaded through the main menu.
+    #(This is not true. There's no option to save the game, so it's impossible to load a save).
+
     clock = pygame.time.Clock()
     title_font = pygame.font.SysFont('Arial', 45, bold=True)
     game_title = title_font.render("Little Rogue", True, GREEN)
@@ -1072,7 +1081,7 @@ def main_menu():
     cursor_img.set_colorkey(cursor_img.get_at((0,0)))
     pygame.draw.polygon(cursor_img, RED, [(0, 0), (16, 8), (0, 16)], 0)
     cursor_img_pos = [195, 254]
-    menu_choices = ['Play a new game', 'Continue last game', 'Quit']   
+    menu_choices = ['Play a new game', 'Save Game', 'Continue last game', 'Quit']
     for i in range(len(menu_choices)):
         menu_choices[i] = font.render(menu_choices[i], True, WHITE)
     choice = 0
@@ -1108,14 +1117,16 @@ def main_menu():
                   if choice == 0:  #new game
                      new_game()
                      play_game()
-                  if choice == 1:  #load last game
-                     #try:
-                     load_game()
-                     #except:
-                        #msgbox(' No saved game to load.')
-                        #continue
+                  if choice == 1:
+                     save_game()
+                  if choice == 2:  #load last game
+                     try:
+                        load_game()
+                     except:
+                        msgbox(' No saved game to load.')
+                        continue
                      play_game()
-                  elif choice == 2:  #quit
+                  elif choice == 3:  #quit
                      return
 
         #draw everything
@@ -1264,6 +1275,8 @@ class Item:
     #an item that can be picked up and used.
     def __init__(self, use_function=None):
         self.use_function = use_function
+
+    #Use the arrow keys to navigate through inventory items. (This doesn't exist yet)
  
     def pick_up(self):
         #add to the player's inventory and remove from the map
