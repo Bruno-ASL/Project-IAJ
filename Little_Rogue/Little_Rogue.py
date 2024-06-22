@@ -1,5 +1,6 @@
 import pygame,sys,math,random,textwrap,pickle, heapq
 from pygame.locals import *
+import heapq
 
 #colors
 BLACK=pygame.color.THECOLORS["black"]
@@ -363,27 +364,32 @@ def place_objects(room):
             objects.append(item)
             level_map[x][y].item = item
             item.send_to_back()  #items appear below other objects
-               
+
 
 def player_move_or_attack(dx, dy):
     global player_action
     target = None
-    #move by the given amount, if the destination is not blocked
-    x = int((player.x + dx)/TILE_WIDTH)
-    y = int((player.y + dy)/TILE_HEIGHT)
-    if not is_blocked(x, y):
-       player.x += dx
-       player.y += dy
-       player.tile.entity = None
-       level_map[x][y].entity = player
-       player.tile = level_map[x][y]
-       check_tile(x, y)
-       camera.update()
-    elif level_map[x][y].entity:
-       target = level_map[x][y].entity
-       #attack if target found
-       #if target.fighter:
-       player.fighter.attack(target)
+
+    start = (int(player.x / TILE_WIDTH), int(player.y / TILE_HEIGHT))
+    goal = (int((player.x + dx) / TILE_WIDTH), int((player.y + dy) / TILE_HEIGHT))
+
+    path = bidirectional_a_star(start, goal, neighbors, heuristic)
+
+    if path and len(path) > 1:
+        next_step = path[1]  # The next step after the current position
+        x, y = next_step
+        if not is_blocked(x, y):
+            player.x = x * TILE_WIDTH
+            player.y = y * TILE_HEIGHT
+            player.tile.entity = None
+            level_map[x][y].entity = player
+            player.tile = level_map[x][y]
+            check_tile(x, y)
+            camera.update()
+        elif level_map[x][y].entity:
+            target = level_map[x][y].entity
+            if target and hasattr(target, 'fighter'):
+                player.fighter.attack(target)
     player_action = 'taked-turn'
 
     
@@ -745,55 +751,101 @@ def get_all_equipped(obj):  #returns a list of equipped items
 
 # Example of a simple A* pathfinding algorithm
 def heuristic(a, b):
-    # Manhattan distance heuristic
-    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+    (x1, y1) = a
+    (x2, y2) = b
+    return abs(x1 - x2) + abs(y1 - y2)
 
-def astar_pathfinding(game_map, start, end):
-    open_list = []
-    closed_list = set()
-    heapq.heappush(open_list, (0, start))
-    parents = {start: None}
-    g_values = {start: 0}
 
-    while open_list:
-        current_cost, (current_x, current_y) = heapq.heappop(open_list)
+def bidirectional_a_star(start, goal, neighbors, heuristic):
+    # Priority queues for forward and backward searches
+    forward_frontier = []
+    backward_frontier = []
 
-        if (current_x, current_y) == end:
-            path = []
-            while (current_x, current_y) in parents:
-                path.append((current_x, current_y))
-                current_x, current_y = parents[(current_x, current_y)]
-            return path[::-1]
+    # Sets for visited nodes
+    forward_closed = set()
+    backward_closed = set()
 
-        if (current_x, current_y) in closed_list:
-            continue
-        closed_list.add((current_x, current_y))
+    # Costs from start and goal
+    forward_cost = {start: 0}
+    backward_cost = {goal: 0}
 
-        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:  # Assuming 4-connected grid
-            neighbor_x, neighbor_y = current_x + dx, current_y + dy
-            if (neighbor_x, neighbor_y) in closed_list or is_blocked(neighbor_x, neighbor_y):
-                continue
-            tentative_g = g_values[(current_x, current_y)] + 1
-            if (neighbor_x, neighbor_y) not in g_values or tentative_g < g_values[(neighbor_x, neighbor_y)]:
-                g_values[(neighbor_x, neighbor_y)] = tentative_g
-                f_score = tentative_g + distance_to_end(neighbor_x, neighbor_y, end)
-                heapq.heappush(open_list, (f_score, (neighbor_x, neighbor_y)))
-                parents[(neighbor_x, neighbor_y)] = (current_x, current_y)
+    # Parent pointers for path reconstruction
+    forward_parent = {start: None}
+    backward_parent = {goal: None}
 
-    return []  # If no path found
+    # Add the start and goal to the priority queues
+    heapq.heappush(forward_frontier, (heuristic(start, goal), start))
+    heapq.heappush(backward_frontier, (heuristic(goal, start), goal))
 
-def distance_to_end(x, y, end):
-    end_x, end_y = end
-    return abs(end_x - x) + abs(end_y - y)
+    while forward_frontier and backward_frontier:
+        # Expand the forward search
+        if forward_frontier:
+            _, current_forward = heapq.heappop(forward_frontier)
+            if current_forward in backward_closed:
+                return reconstruct_path(forward_parent, backward_parent, current_forward)
+            forward_closed.add(current_forward)
+            for neighbor in neighbors(current_forward):
+                new_cost = forward_cost[current_forward] + cost(current_forward, neighbor)
+                if neighbor not in forward_cost or new_cost < forward_cost[neighbor]:
+                    forward_cost[neighbor] = new_cost
+                    priority = new_cost + heuristic(neighbor, goal)
+                    heapq.heappush(forward_frontier, (priority, neighbor))
+                    forward_parent[neighbor] = current_forward
 
-def get_neighbors(grid, pos):
-    # Function to get neighboring cells (assumes 4 directions: up, down, left, right)
-    neighbors = []
-    for direction in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-        neighbor = (pos[0] + direction[0], pos[1] + direction[1])
-        if 0 <= neighbor[0] < len(grid) and 0 <= neighbor[1] < len(grid[0]) and grid[neighbor[0]][neighbor[1]] != '#':
-            neighbors.append(neighbor)
-    return neighbors
+        # Expand the backward search
+        if backward_frontier:
+            _, current_backward = heapq.heappop(backward_frontier)
+            if current_backward in forward_closed:
+                return reconstruct_path(forward_parent, backward_parent, current_backward)
+            backward_closed.add(current_backward)
+            for neighbor in neighbors(current_backward):
+                new_cost = backward_cost[current_backward] + cost(current_backward, neighbor)
+                if neighbor not in backward_cost or new_cost < backward_cost[neighbor]:
+                    backward_cost[neighbor] = new_cost
+                    priority = new_cost + heuristic(neighbor, start)
+                    heapq.heappush(backward_frontier, (priority, neighbor))
+                    backward_parent[neighbor] = current_backward
+
+    return None  # No path found
+
+
+def reconstruct_path(forward_parent, backward_parent, meeting_point):
+    path = []
+    current = meeting_point
+    while current:
+        path.append(current)
+        current = forward_parent[current]
+    path.reverse()
+    current = backward_parent[meeting_point]
+    while current:
+        path.append(current)
+        current = backward_parent[current]
+    return path
+
+
+def neighbors(node):
+    x, y = node
+    results = []
+
+    # Define the possible movements: up, down, left, right
+    directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]
+
+    for dx, dy in directions:
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < TILE_MAP_WIDTH and 0 <= ny < TILE_MAP_HEIGHT and not level_map[nx][ny].blocked:
+            results.append((nx, ny))
+
+    return results
+
+
+def cost(node1, node2):
+    return 1  # Assuming uniform cost for adjacent tiles
+
+
+def heuristic(node, goal):
+    x1, y1 = node
+    x2, y2 = goal
+    return abs(x1 - x2) + abs(y1 - y2)
 
 
 def save_game():
