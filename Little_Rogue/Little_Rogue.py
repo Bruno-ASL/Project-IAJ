@@ -1,6 +1,8 @@
+import background as background
 import pygame,sys,math,random,textwrap,pickle, heapq
 from pygame.locals import *
 import heapq
+import cProfile
 
 #colors
 BLACK=pygame.color.THECOLORS["black"]
@@ -937,108 +939,129 @@ def new_game():
 def msgbox(text):
     menu(text, [])  #use menu() as a sort of "message box"
 
-    
+
 def play_game():
-    global player_action, message_log
-    
+    global player_action, message_log, dirty_rectangles
+
     clock = pygame.time.Clock()
     player_move = False
     pygame.key.set_repeat(400, 30)
+    dirty_rectangles = []
 
     while True:
-        #loop speed limitation
-        #30 frames per second is enought
         clock.tick(30)
-        
-        for event in pygame.event.get():    #wait for events
+
+        for event in pygame.event.get():  # wait for events
             if event.type == QUIT:
                 save_game()
                 pygame.quit()
                 sys.exit()
-   
-            if game_state == 'playing':    
-               if event.type == KEYDOWN:
-                  if event.key == K_ESCAPE:
-                     save_game()
-                     return
-                  message_log = False
-                  #movement keys
-                  if event.key == K_UP:
-                     player_move_or_attack(0, -TILE_HEIGHT)
-                  elif event.key == K_DOWN:
-                     player_move_or_attack(0, TILE_HEIGHT)
-                  if event.key == K_LEFT:
-                     player_move_or_attack(-TILE_WIDTH, 0)
-                  elif event.key == K_RIGHT:
-                     player_move_or_attack(TILE_WIDTH, 0)
-                  if event.key == K_g:
-                     #pick up an item
-                     if player.tile.item and player.tile.item.item: 
-                        player.tile.item.item.pick_up()
-                        player.tile.item = None
-                  if event.key == K_i:
-                     #show the inventory; if an item is selected, use it
-                     chosen_item = inventory_menu("Press the key next to an item to use it, or any other to cancel.")
-                     if chosen_item is not None:
-                        chosen_item.use()
-                        update_gui()
-                  if event.key == K_d:
-                     if player.tile.item:
-                        message("There's already something here")
-                     else:
-                        #show the inventory; if an item is selected, drop it
-                        chosen_item = inventory_menu('Press the key next to an item to drop iy, or any other to cancel.')
+
+            if game_state == 'playing':
+                if event.type == KEYDOWN:
+                    if event.key == K_ESCAPE:
+                        save_game()
+                        return
+                    message_log = False
+                    old_position = (player.x, player.y)
+                    # movement keys
+                    if event.key == K_UP:
+                        player_move_or_attack(0, -TILE_HEIGHT)
+                    elif event.key == K_DOWN:
+                        player_move_or_attack(0, TILE_HEIGHT)
+                    elif event.key == K_LEFT:
+                        player_move_or_attack(-TILE_WIDTH, 0)
+                    elif event.key == K_RIGHT:
+                        player_move_or_attack(TILE_WIDTH, 0)
+                    new_position = (player.x, player.y)
+                    if old_position != new_position:
+                        update_dirty_rectangles(pygame.Rect(old_position[0], old_position[1], TILE_WIDTH, TILE_HEIGHT))
+                        update_dirty_rectangles(pygame.Rect(new_position[0], new_position[1], TILE_WIDTH, TILE_HEIGHT))
+                    # pick up an item
+                    if event.key == K_g:
+                        if player.tile.item and player.tile.item.item:
+                            player.tile.item.item.pick_up()
+                            player.tile.item = None
+                    # show inventory
+                    if event.key == K_i:
+                        chosen_item = inventory_menu("Press the key next to an item to use it, or any other to cancel.")
                         if chosen_item is not None:
-                           chosen_item.drop()
-                  if event.key == K_c:
-                    #show character information
-                    level_up_exp = LEVEL_UP_BASE + player.level * LEVEL_UP_FACTOR
-                    menu('Character Information', ['Level: ' + str(player.level), 'Experience: ' + str(player.fighter.exp),
-                        'Experience to level up: ' + str(level_up_exp), 'Maximum HP: ' + str(player.fighter.max_hp),
-                        'Attack: ' + str(player.fighter.power), 'Defense: ' + str(player.fighter.defense)])
-                  if event.key in (K_LESS, K_PERIOD) or event.unicode == '>':
-                     #go down stairs, if the player is on them
-                     if stairs.x == player.x and stairs.y == player.y:
-                        next_level()                           
-               if event.type == MOUSEBUTTONDOWN:
-                  if event.button==1:
-                     player_move = True
-                     message_log = False
-                  elif event.button==3:
-                     mouse_x, mouse_y = event.pos
-                     get_names_under_mouse(mouse_x, mouse_y)
-               if event.type == MOUSEBUTTONUP:
-                  if event.button==1:
-                     player_move = False
+                            chosen_item.use()
+                            update_gui()
+                    # drop an item
+                    if event.key == K_d:
+                        if player.tile.item:
+                            message("There's already something here")
+                        else:
+                            chosen_item = inventory_menu(
+                                'Press the key next to an item to drop it, or any other to cancel.')
+                            if chosen_item is not None:
+                                chosen_item.drop()
+                    # show character info
+                    if event.key == K_c:
+                        level_up_exp = LEVEL_UP_BASE + player.level * LEVEL_UP_FACTOR
+                        menu('Character Information',
+                             ['Level: ' + str(player.level), 'Experience: ' + str(player.fighter.exp),
+                              'Experience to level up: ' + str(level_up_exp),
+                              'Maximum HP: ' + str(player.fighter.max_hp),
+                              'Attack: ' + str(player.fighter.power), 'Defense: ' + str(player.fighter.defense)])
+                    # go down stairs
+                    if event.key in (K_LESS, K_PERIOD) or event.unicode == '>':
+                        if stairs.x == player.x and stairs.y == player.y:
+                            next_level()
+                if event.type == MOUSEBUTTONDOWN:
+                    if event.button == 1:
+                        player_move = True
+                        message_log = False
+                    elif event.button == 3:
+                        mouse_x, mouse_y = event.pos
+                        get_names_under_mouse(mouse_x, mouse_y)
+                if event.type == MOUSEBUTTONUP:
+                    if event.button == 1:
+                        player_move = False
 
         if player_move and game_state == 'playing':
-           pos = pygame.mouse.get_pos()
-           x = int((pos[0] + camera.x)/TILE_WIDTH)
-           y = int((pos[1] + camera.y)/TILE_HEIGHT)
-           tile = level_map[x][y]
-           if tile != player.tile:
-              #vector from player to the target, and distance
-              dx = tile.x - player.x
-              dy = tile.y - player.y
-              distance = math.sqrt(dx ** 2 + dy ** 2)
-              #normalize it to length 1 (preserving direction), then round it and
-              #convert to integer so the movement is restricted to the map grid
-              dx = int(round(dx / distance)) * TILE_WIDTH
-              dy = int(round(dy / distance)) * TILE_HEIGHT
-              player_move_or_attack(dx, dy)
-        
-           
-        #let monsters take their turn
+            pos = pygame.mouse.get_pos()
+            x = int((pos[0] + camera.x) / TILE_WIDTH)
+            y = int((pos[1] + camera.y) / TILE_HEIGHT)
+            tile = level_map[x][y]
+            if tile != player.tile:
+                dx = tile.x - player.x
+                dy = tile.y - player.y
+                distance = math.sqrt(dx ** 2 + dy ** 2)
+                dx = int(round(dx / distance)) * TILE_WIDTH
+                dy = int(round(dy / distance)) * TILE_HEIGHT
+                player_move_or_attack(dx, dy)
+
         if game_state == 'playing' and player_action != 'didnt-take-turn':
-           for entity in active_entities:
-               if entity.ai:
-                  entity.ai.take_turn()
-           player_action = 'didnt-take-turn'
-        
+            for entity in active_entities:
+                if entity.ai:
+                    entity.ai.take_turn()
+            player_action = 'didnt-take-turn'
 
-        #draw everything
         render_all()
+        pygame.display.update(dirty_rectangles)
+        dirty_rectangles = []
 
+
+def update_dirty_rectangles(rect):
+    global dirty_rectangles
+    dirty_rectangles.append(rect)
+
+def redraw_game_window():
+    global game_window, dirty_rectangles
+    game_window.fill((0, 0, 0))  # Clear the screen with black
+    for rect in dirty_rectangles:
+        # Redraw only the dirty rectangles
+        game_window.blit(background, rect, rect)
+        game_window.blit(player.image, (player.x, player.y))
+        # Add other game objects to be redrawn here
+
+    pygame.display.update(dirty_rectangles)
+    dirty_rectangles = []
+
+def update_dirty_rectangles(rect):
+    dirty_rectangles.append(rect)
 
 def main_menu():
     clock = pygame.time.Clock()
@@ -1159,17 +1182,15 @@ class Object:
         self.move(dx, dy)
 
     def move_towards_player(self, player_position, game_map):
-        start = (self.x, self.y)
-        end = player_position
+        start = (self.x // TILE_WIDTH, self.y // TILE_HEIGHT)
+        end = (player_position[0] // TILE_WIDTH, player_position[1] // TILE_HEIGHT)
 
-        # Perform A* pathfinding to get the path from object to player
-        path = astar_pathfinding(game_map, start, end)
+        path = bidirectional_a_star(start, end, neighbors, heuristic)
 
-        # Move object towards the player (simplified example, adjust based on your game logic)
-        if path:
-            next_position = path[0]
-            self.x = next_position[0]
-            self.y = next_position[1]
+        if path and len(path) > 1:
+            next_position = path[1]
+            self.x = next_position[0] * TILE_WIDTH
+            self.y = next_position[1] * TILE_HEIGHT
  
     def distance_to(self, other):
         #return the distance to another object
@@ -1497,3 +1518,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+cProfile.run('main()')
