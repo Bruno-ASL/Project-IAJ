@@ -93,3 +93,13 @@ Automatically follows the player character (@) around the game map.
 
 **Save and Load:**
 Games can be saved and loaded through the main menu.
+
+##
+## Objectives
+Implement behaviours that can achieve the following objectives:
+- Complete six levels.
+- Defeat the enemies.
+- Pick up the items (potions and scrolls). 
+- Use the items.
+
+To achieve this, we must use the most appropriate architecture to solve the problem and pay attention to the representation and decision-making technique selected.
